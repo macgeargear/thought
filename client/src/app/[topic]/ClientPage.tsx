@@ -1,6 +1,6 @@
 "use client";
 import MaxWidthWrapper from "@/components/MaxWidthWrapper";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Wordcloud } from "@visx/wordcloud";
 import { scaleLog } from "@visx/scale";
 import { Text } from "@visx/text";
@@ -9,6 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useMutation } from "@tanstack/react-query";
 import { submitComment } from "../actions";
+import { io } from "socket.io-client";
+
+const socket = io("http://localhost:8080");
 
 type Props = {
   topicName: string;
@@ -20,6 +23,46 @@ const COLORS = ["#143059", "#2F6B9A", "#82a6c2"];
 export default function ClientPage({ topicName, initialData }: Props) {
   const [words, setWords] = useState(initialData);
   const [input, setInput] = useState<string>("");
+
+  useEffect(() => {
+    socket.emit("join-room", `room:${topicName}`);
+  }, []);
+
+  useEffect(() => {
+    socket.on("room-update", (message: string) => {
+      console.log("room update received: ", message);
+      const data = JSON.parse(message) as {
+        text: string;
+        value: number;
+      }[];
+
+      data.map((newWord) => {
+        const isWordAlreadyIncluded = words.some(
+          (word) => word.text === newWord.text
+        );
+
+        if (isWordAlreadyIncluded) {
+          // inc
+          setWords((prev) => {
+            const before = prev.find((word) => word.text === newWord.text);
+            const rest = prev.filter((word) => word.text !== newWord.text);
+
+            return [
+              ...rest,
+              { text: before!.text, value: before!.value + newWord.value },
+            ];
+          });
+        } else if (words.length < 50) {
+          // add to state
+          setWords((prev) => [...prev, newWord]);
+        }
+      });
+    });
+
+    return () => {
+      socket.off("room-update");
+    };
+  }, [words]);
 
   const fontScale = scaleLog({
     domain: [
